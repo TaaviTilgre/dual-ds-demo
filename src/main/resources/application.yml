@@ -1,0 +1,72 @@
+spring:
+  datasource:
+    # ── WRITE datasource (primary) ──────────────────────────────────────
+    # In production this would point to your primary/master database.
+    # All INSERT/UPDATE/DELETE operations go here.
+    write:
+      url: jdbc:h2:mem:writedb;DB_CLOSE_DELAY=-1
+      driver-class-name: org.h2.Driver
+      username: sa
+      password:
+      hikari:
+        maximum-pool-size: 20   # just for demo — default is 10, tune based on your DB and load
+        minimum-idle: 5         # keep at least 5 connections warm in the pool
+        pool-name: WriteHikariPool
+
+    # ── READ datasource (replica) ───────────────────────────────────────
+    # In production this would point to a read replica that replicates from the primary.
+    # All SELECT operations with @Transactional(readOnly = true) go here.
+    read:
+      url: jdbc:h2:mem:readdb;DB_CLOSE_DELAY=-1
+      driver-class-name: org.h2.Driver
+      username: sa
+      password:
+      hikari:
+        maximum-pool-size: 20   # just for demo — default is 10, tune based on your DB and load
+        minimum-idle: 5
+        pool-name: ReadHikariPool
+
+  h2:
+    console:
+      enabled: true             # H2 web console at /h2-console — handy for debugging
+
+  jpa:
+    open-in-view: false         # Disable OSIV — avoids lazy-loading surprises outside transactions
+
+# ── Resilience4j circuit breaker configuration ────────────────────────────
+# Each "instance" is a named circuit breaker you reference with @CircuitBreaker(name = "...").
+# These use the default Resilience4j Spring Boot starter auto-configuration.
+resilience4j:
+  circuitbreaker:
+    instances:
+      writeService:
+        register-health-indicator: true   # exposes state in /actuator/health
+        sliding-window-size: 10           # evaluate the last 10 calls
+        minimum-number-of-calls: 5        # need at least 5 calls before the CB can trip
+        failure-rate-threshold: 50        # open the circuit if >= 50% of calls fail
+        wait-duration-in-open-state: 10s  # stay open for 10s before trying half-open
+        permitted-number-of-calls-in-half-open-state: 3  # allow 3 test calls in half-open
+        sliding-window-type: COUNT_BASED  # count-based window (vs TIME_BASED)
+      readService:
+        register-health-indicator: true
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        sliding-window-type: COUNT_BASED
+
+# ── Actuator ──────────────────────────────────────────────────────────────
+# Exposes /actuator/health and /actuator/info endpoints.
+# Circuit breaker health indicators show up under /actuator/health when enabled above.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  health:
+    circuitbreakers:
+      enabled: true             # include CB state in the health endpoint
+  endpoint:
+    health:
+      show-details: always      # show full details (UP/DOWN per component) instead of just status
